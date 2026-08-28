@@ -1,0 +1,54 @@
+name: Keep Streamlit App Awake
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  wake-up:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Wake up the app
+        run: |
+          cat << 'EOF' > wake.js
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage();
+
+            console.log("Opening app...");
+            await page.goto('https://jitarth-ai.streamlit.app/', { waitUntil: 'load', timeout: 60000 });
+
+            await page.waitForTimeout(5000);
+
+            try {
+              const wakeButton = page.locator('button:has-text("Yes, get this app back up!")');
+              if (await wakeButton.isVisible({ timeout: 5000 })) {
+                console.log("App was sleeping. Clicking wake up button...");
+                await wakeButton.click();
+                await page.waitForTimeout(60000);
+                console.log("App should be awake now.");
+              } else {
+                console.log("App was already awake.");
+              }
+            } catch (e) {
+              console.log("No sleep button found, app is likely already awake.");
+            }
+
+            await browser.close();
+          })();
+          EOF
+          node wake.js

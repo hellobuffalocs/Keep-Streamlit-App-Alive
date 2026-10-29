@@ -1,14 +1,20 @@
-name: Keep Streamlit App Awake
+name: Keep Streamlit Apps Awake
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   wake-up:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -20,35 +26,53 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Wake up the app
+      - name: Wake up the apps
         run: |
           cat << 'EOF' > wake.js
           const { chromium } = require('playwright');
 
-          (async () => {
-            const browser = await chromium.launch();
+          const APPS = [
+            'https://jitarth-ai.streamlit.app/',
+            'https://chatore-sathi.streamlit.app/',
+            'https://dev-sathi.streamlit.app/',
+          ];
+
+          async function wake(browser, url) {
             const page = await browser.newPage();
-
-            console.log("Opening app...");
-            await page.goto('https://jitarth-ai.streamlit.app/', { waitUntil: 'load', timeout: 60000 });
-
-            await page.waitForTimeout(5000);
-
             try {
+              console.log(`[${url}] Opening app...`);
+              await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+              await page.waitForTimeout(5000);
+
               const wakeButton = page.locator('button:has-text("Yes, get this app back up!")');
               if (await wakeButton.isVisible({ timeout: 5000 })) {
-                console.log("App was sleeping. Clicking wake up button...");
+                console.log(`[${url}] App was sleeping. Clicking wake up button...`);
                 await wakeButton.click();
                 await page.waitForTimeout(60000);
-                console.log("App should be awake now.");
+                console.log(`[${url}] App should be awake now.`);
               } else {
-                console.log("App was already awake.");
+                console.log(`[${url}] App was already awake.`);
               }
             } catch (e) {
-              console.log("No sleep button found, app is likely already awake.");
+              console.log(`[${url}] No sleep button found or error: ${e.message}`);
+            } finally {
+              await page.close();
             }
+          }
 
+          (async () => {
+            const browser = await chromium.launch();
+            for (const url of APPS) {
+              await wake(browser, url);
+            }
             await browser.close();
           })();
           EOF
           node wake.js
+
+      - name: Keep repo active
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git commit --allow-empty -m "keepalive $(date -u +%F)"
+          git push
